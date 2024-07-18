@@ -35,6 +35,11 @@ class RobotDogNode:
         self.current_path = None
         self.current_position = np.zeros(3)  # Initialize current position
         self.current_yaw = 0.0  # Initialize current yaw
+        
+        self.estop_active = False
+        self.is_estopped = False
+        self.velocity_command = None
+        self.gridded_points = None
 
         if ROS_AVAILABLE:
             rclpy.init()
@@ -135,6 +140,9 @@ class RobotDogNode:
             gridded_points = np.column_stack((xx.ravel()[non_empty_mask], 
                                             yy.ravel()[non_empty_mask], 
                                             grid_flat[non_empty_mask]))
+            
+            # Store the gridded points for e-stop checking
+            self.gridded_points = gridded_points
             
             # Convert to list for JSON serialization
             gridded_points_list = gridded_points.tolist()
@@ -242,6 +250,27 @@ class RobotDogNode:
 
         return path
     
+    def check_estop(self):
+        if not self.estop_active or self.gridded_points is None:
+            return False
+
+        # Define the front area of the robot
+        front_area = np.array([[-0.3, 0.3], [0.3, 1.0]])  # [x_min, x_max], [y_min, y_max]
+
+        # Filter points in the front area
+        mask = (self.gridded_points[:, 0] >= front_area[0, 0]) & (self.gridded_points[:, 0] <= front_area[0, 1]) & \
+               (self.gridded_points[:, 1] >= front_area[1, 0]) & (self.gridded_points[:, 1] <= front_area[1, 1])
+        front_points = self.gridded_points[mask]
+
+        if len(front_points) > 0:
+            # Check if any point is too close (less than 0.5m)
+            tree = cKDTree(front_points[:, :2])
+            distances, _ = tree.query([[0, 0]], k=1)
+            if distances[0] < 0.5:
+                return True
+
+        return False
+    
     def execute_path(self, path):
         self.executing_path = True
         self.current_path = path
@@ -251,23 +280,33 @@ class RobotDogNode:
                 break
             
             # Calculate velocity commands based on current position and next point
-            # This is a simple example and might need to be adjusted based on your robot's control system
-            velocity_x = 0.5 #point[1] - self.current_position[1]  # Assuming current_position is updated elsewhere
-            velocity_y = 0.0 #point[0] - self.current_position[0]
+            velocity_x = 0.5
+            velocity_y = 0.0
             
-            # Create and publish velocity command
-            velocity_command = SportModeState()
-            velocity_command.velocity = [velocity_x, velocity_y, 0.0]  # Assuming z velocity is 0
-            velocity_command.yaw_speed = 0.0  # You might want to calculate yaw based on path
+            # Create velocity command
+            self.velocity_command = SportModeState()
+            self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
+            self.velocity_command.yaw_speed = 0.0
+            
+            # Check for e-stop condition
+            self.is_estopped = self.check_estop()
+            
+            if self.is_estopped:
+                self.velocity_command.velocity = [0.0, 0.0, 0.0]
+                self.velocity_command.yaw_speed = 0.0
+                self.log("E-Stop activated! Robot stopped.", "warning")
             
             if ROS_AVAILABLE:
-                self.velocity_publisher.publish(velocity_command)
+                self.velocity_publisher.publish(self.velocity_command)
             else:
-                self.log(f"Test mode: Publishing velocity command: x={velocity_x}, y={velocity_y}")
+                self.log(f"Test mode: Publishing velocity command: x={self.velocity_command.velocity[0]}, y={self.velocity_command.velocity[1]}")
             
-            print("PUBLISH VELOCITY COMMAND", velocity_command)
+            print("PUBLISH VELOCITY COMMAND", self.velocity_command)
             
-            time.sleep(0.1)  # Adjust this delay based on your robot's control loop frequency
+            # Emit e-stop status
+            socketio.emit('estop_status', {'is_estopped': self.is_estopped})
+            
+            time.sleep(0.1)
         
         self.executing_path = False
         self.current_path = None
@@ -311,6 +350,13 @@ def handle_execute_path(data):
     path = data['path']
     robot_dog_node.log("Received command to execute path")
     threading.Thread(target=robot_dog_node.execute_path, args=(path,), daemon=True).start()
+
+@socketio.on('toggle_estop')
+def handle_toggle_estop(data):
+    global robot_dog_node
+    robot_dog_node.estop_active = data['estop_active']
+    robot_dog_node.log(f"E-Stop {'activated' if robot_dog_node.estop_active else 'deactivated'}")
+    socketio.emit('estop_status', {'is_estopped': robot_dog_node.is_estopped, 'estop_active': robot_dog_node.estop_active})
 
 if __name__ == '__main__':
     robot_dog_node = RobotDogNode()

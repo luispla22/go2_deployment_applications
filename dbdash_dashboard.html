@@ -153,6 +153,23 @@
             background-color: #95a5a6;
             cursor: not-allowed;
         }
+        #estop-toggle {
+            margin-left: 20px;
+        }
+        #estop-status {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .estop-active {
+            background-color: #e74c3c;
+        }
+        .estop-inactive {
+            background-color: #2ecc71;
+        }
     </style>
 </head>
 <body>
@@ -164,6 +181,12 @@
         </label>
         <span style="margin-left: 10px;">Testing Mode</span>
         <button id="execute-path-btn" disabled>Execute Path</button>
+        <label class="switch" id="estop-toggle">
+            <input type="checkbox" id="estopModeToggle">
+            <span class="slider"></span>
+        </label>
+        <span style="margin-left: 10px;">E-Stop Active</span>
+        <div id="estop-status" class="estop-inactive"></div>
     </div>
     <div id="status-indicator"></div>
     <div class="container">
@@ -373,6 +396,22 @@
             isPlanning = false;
             statusIndicator.textContent = "Path planning complete.";
             logMessage(`Path planning complete. Path length: ${pathData.length} points`);
+        });
+
+        const estopModeToggle = document.getElementById('estopModeToggle');
+        const estopStatus = document.getElementById('estop-status');
+
+        estopModeToggle.addEventListener('change', function() {
+            socket.emit('toggle_estop', {estop_active: this.checked});
+        });
+
+        socket.on('estop_status', function(data) {
+            estopStatus.className = data.is_estopped ? 'estop-active' : 'estop-inactive';
+            estopModeToggle.checked = data.estop_active;
+            if (data.is_estopped) {
+                statusIndicator.textContent = "E-Stop activated! Robot stopped.";
+                logMessage("E-Stop activated! Robot stopped.", "warning");
+            }
         });
 
         socket.on('log', function(data) {
