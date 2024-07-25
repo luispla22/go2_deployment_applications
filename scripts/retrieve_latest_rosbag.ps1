@@ -1,0 +1,1 @@
+scp -r "unitree@192.168.123.18:/home/unitree/rosbag_latest.bag" "./rosbags"
