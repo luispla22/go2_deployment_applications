@@ -1,2 +1,5 @@
 rosbags
-yaml
+pyyaml
+importlib-metadata
+flask
+flask_socketio

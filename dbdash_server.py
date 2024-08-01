@@ -284,9 +284,10 @@ class RobotDogNode:
             velocity_y = 0.0
             
             # Create velocity command
-            self.velocity_command = SportModeState()
-            self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
-            self.velocity_command.yaw_speed = 0.0
+            if ROS_AVAILABLE:
+                self.velocity_command = SportModeState()
+                self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
+                self.velocity_command.yaw_speed = 0.0
             
             # Check for e-stop condition
             self.is_estopped = self.check_estop()
