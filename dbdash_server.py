@@ -328,7 +328,6 @@ def handle_testing_mode(data):
     else:
         robot_dog_node.log("ROS is not available. Always running in test mode.", "warning")
 
-# Then modify your route:
 @app.route('/')
 def index():
     with open('dbdash_dashboard.html', 'r') as file:
