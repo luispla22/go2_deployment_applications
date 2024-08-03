@@ -267,13 +267,18 @@ class RobotDogNode:
                (self.gridded_points[:, 1] >= front_area[1, 0]) & (self.gridded_points[:, 1] <= front_area[1, 1])
         front_points = self.gridded_points[mask]
 
+        estop_condition = False
+
         if len(front_points) > 0:
             # Check if any point is too high (higher than 20cm below the robot)
             if np.any(front_points[:, 2] > -0.2):
+                estop_condition = True
+
                 # Stop the robot
                 self.velocity_command = Request()
                 self.velocity_command.header.identity.api_id = 1003
                 self.velocity_publisher.publish(self.velocity_command)
+
 
                 # Emit a message if transitioning from non-estop to estop state
                 if not self.is_estopped:
@@ -281,15 +286,15 @@ class RobotDogNode:
                 self.is_estopped = True
                 return
 
-        # No e-stop condition detected
-        # Emit a message if transitioning from estop to non-estop state
-        if self.is_estopped:    
-            socketio.emit('estop_status', {'is_estopped': False})
-        self.is_estopped = False
+        # Check if the estop status has just changed
+        if estop_condition != self.is_estopped:
+            # Commnicate the new state to the web dashboard
+            socketio.emit('estop_status', {'is_estopped': estop_condition})
+        self.is_estopped = estop_condition
     
     def step_forward(self):
 
-        # command forward
+        # Command forward
         self.velocity_command = Request()
         self.velocity_command.parameter = json.dumps({"x": 0.5, "y": 0.0, "z": 0.0})
         self.velocity_command.header.identity.api_id = 1008
