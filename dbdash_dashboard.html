@@ -44,7 +44,7 @@
         }
         #sportmode-state {
             font-size: 18px;
-            line-height: 1.6;
+            line-height: 1.2;
         }
         .value {
             font-weight: bold;
@@ -154,9 +154,6 @@
             background-color: #95a5a6;
             cursor: not-allowed;
         }
-        #estop-toggle {
-            margin-left: 20px;
-        }
         #estop-status {
             display: inline-block;
             width: 20px;
@@ -193,11 +190,7 @@
             <span class="slider"></span>
         </label>
         <span style="margin-left: 10px;">Testing Mode</span>
-        <button id="execute-path-btn" disabled>Execute Path</button>
-        <label class="switch" id="estop-toggle">
-            <input type="checkbox" id="estopModeToggle">
-            <span class="slider"></span>
-        </label>
+        <button id="execute-path-btn">Execute Path</button>
         <span style="margin-left: 10px;">E-Stop Active</span>
         <div id="estop-status" class="estop-inactive"></div>
     </div>
@@ -214,6 +207,10 @@
             <p>X: <span id="velocity-x" class="value">-</span> m/s</p>
             <p>Y: <span id="velocity-y" class="value">-</span> m/s</p>
             <p>Yaw: <span id="yaw-speed" class="value">-</span> rad/s</p>
+            <h2>Position</h2>
+            <p>X: <span id="position-x" class="value">-</span> m</p>
+            <p>Y: <span id="position-y" class="value">-</span> m</p>
+            <p>Yaw: <span id="yaw-angle" class="value">-</span> rad</p>
         </div>
     </div>
     <div id="log-console"></div>
@@ -236,12 +233,18 @@
         const statusIndicator = document.getElementById('status-indicator');
         const executePathBtn = document.getElementById('execute-path-btn');
 
+        // executePathBtn.addEventListener('click', function() {
+        //     if (pathData) {
+        //         socket.emit('execute_path', { path: pathData });
+        //         logMessage("Executing path...");
+        //         statusIndicator.textContent = "Executing path...";
+        //     }
+        // });
+
         executePathBtn.addEventListener('click', function() {
-            if (pathData) {
-                socket.emit('execute_path', { path: pathData });
-                logMessage("Executing path...");
-                statusIndicator.textContent = "Executing path...";
-            }
+            socket.emit('step_forward', {});
+            logMessage("Executing path...");
+            statusIndicator.textContent = "Executing path...";
         });
 
         socket.on('path_result', function(data) {
@@ -339,6 +342,9 @@
             document.getElementById('velocity-x').textContent = parsedData.velocity_x.toFixed(3);
             document.getElementById('velocity-y').textContent = parsedData.velocity_y.toFixed(3);
             document.getElementById('yaw-speed').textContent = parsedData.yaw_speed.toFixed(3);
+            document.getElementById('position-x').textContent = parsedData.position_x.toFixed(3);
+            document.getElementById('position-y').textContent = parsedData.position_y.toFixed(3);
+            document.getElementById('yaw-angle').textContent = parsedData.yaw.toFixed(3);
         });
 
         socket.on('pointcloud_update', function(data) {
@@ -411,19 +417,15 @@
             logMessage(`Path planning complete. Path length: ${pathData.length} points`);
         });
 
-        const estopModeToggle = document.getElementById('estopModeToggle');
         const estopStatus = document.getElementById('estop-status');
-
-        estopModeToggle.addEventListener('change', function() {
-            socket.emit('toggle_estop', {estop_active: this.checked});
-        });
 
         socket.on('estop_status', function(data) {
             estopStatus.className = data.is_estopped ? 'estop-active' : 'estop-inactive';
-            estopModeToggle.checked = data.estop_active;
             if (data.is_estopped) {
-                statusIndicator.textContent = "E-Stop activated! Robot stopped.";
                 logMessage("E-Stop activated! Robot stopped.", "warning");
+            }
+            else {
+                logMessage("E-Stop deactivated! Robot moving.");
             }
         });
 

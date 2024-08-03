@@ -12,10 +12,12 @@ from scipy.spatial import cKDTree
 
 # Try to import ROS 2 modules, but continue if not available
 try:
-    subprocess.run(['source', '/home/unitree/unitree_ros2/cyclonedds_ws/src/install/setup.bash'], shell=True, check=False)
+    # subprocess.run(['source', '/home/unitree/unitree_ros2/cyclonedds_ws/src/install/setup.bash'], shell=True, check=False)
+    subprocess.run(['source', '/home/unitree/unitree_ros2/setup.sh'], shell=True, check=False)
     import rclpy
     from rclpy.node import Node
     from unitree_go.msg import SportModeState, HeightMap, SportModeCmd
+    from unitree_api.msg import Request
     from sensor_msgs.msg import PointCloud2
     import struct
     ROS_AVAILABLE = True
@@ -47,7 +49,7 @@ class RobotDogNode:
             self.node.create_subscription(SportModeState, '/sportmodestate', self.sportmode_callback, 10)
             self.node.create_subscription(HeightMap, '/utlidar/height_map_array', self.heightmap_callback, 10)
             self.node.create_subscription(PointCloud2, '/utlidar/cloud_deskewed', self.pointcloud_callback, 10)
-            self.velocity_publisher = self.node.create_publisher(SportModeCmd, '/sportmodestate', 10)
+            self.velocity_publisher = self.node.create_publisher(Request, '/api/sport/request', 10)
             self.log("ROS initialized successfully")
         else:
             self.log("ROS not available. Running in testing mode only.", "warning")
@@ -99,6 +101,8 @@ class RobotDogNode:
             ])
             points = np.dot(points, rotation_matrix.T)
             
+            points[:, 1] = -points[:, 1]
+            
             # Update point cloud buffer
             self.point_cloud_buffer.append(points)
             if len(self.point_cloud_buffer) > 15:
@@ -140,13 +144,16 @@ class RobotDogNode:
             gridded_points = np.column_stack((xx.ravel()[non_empty_mask], 
                                             yy.ravel()[non_empty_mask], 
                                             grid_flat[non_empty_mask]))
-            
+
             # Store the gridded points for e-stop checking
             self.gridded_points = gridded_points
             
             # Convert to list for JSON serialization
             gridded_points_list = gridded_points.tolist()
             
+            # Check estop and emit status
+            self.check_estop()
+
             # Emit to socketio
             socketio.emit('pointcloud_update', json.dumps({'points': gridded_points_list}))
 
@@ -251,11 +258,9 @@ class RobotDogNode:
         return path
     
     def check_estop(self):
-        if not self.estop_active or self.gridded_points is None:
-            return False
 
         # Define the front area of the robot
-        front_area = np.array([[-0.3, 0.3], [0.3, 1.0]])  # [x_min, x_max], [y_min, y_max]
+        front_area = np.array([[-0.2, 0.2], [0.3, 0.5]])  # [x_min, x_max], [y_min, y_max]
 
         # Filter points in the front area
         mask = (self.gridded_points[:, 0] >= front_area[0, 0]) & (self.gridded_points[:, 0] <= front_area[0, 1]) & \
@@ -263,13 +268,107 @@ class RobotDogNode:
         front_points = self.gridded_points[mask]
 
         if len(front_points) > 0:
-            # Check if any point is too close (less than 0.5m)
-            tree = cKDTree(front_points[:, :2])
-            distances, _ = tree.query([[0, 0]], k=1)
-            if distances[0] < 0.5:
-                return True
+            # Check if any point is too high (higher than 20cm below the robot)
+            if np.any(front_points[:, 2] > -0.2):
+                # Stop the robot
+                self.velocity_command = Request()
+                self.velocity_command.header.identity.api_id = 1003
+                self.velocity_publisher.publish(self.velocity_command)
 
-        return False
+                # Emit a message if transitioning from non-estop to estop state
+                if not self.is_estopped:
+                    socketio.emit('estop_status', {'is_estopped': True})
+                self.is_estopped = True
+                return
+
+        # No e-stop condition detected
+        # Emit a message if transitioning from estop to non-estop state
+        if self.is_estopped:    
+            socketio.emit('estop_status', {'is_estopped': False})
+        self.is_estopped = False
+    
+    def step_forward(self):
+
+        # command forward
+        self.velocity_command = Request()
+        self.velocity_command.parameter = json.dumps({"x": 0.5, "y": 0.0, "z": 0.0})
+        self.velocity_command.header.identity.api_id = 1008
+        self.log("Commanded forward")
+
+        # wait one secong
+        ts = time.time()
+        while time.time() - ts < 3.0:
+            self.velocity_publisher.publish(self.velocity_command)
+            time.sleep(0.1)
+
+        # command stop
+        self.velocity_command = Request()
+        self.velocity_command.header.identity.api_id = 1003
+        self.velocity_publisher.publish(self.velocity_command)
+        self.log("Commanded stop")
+
+        # build points
+
+        # x_init, y_init, z_init = self.current_position
+        # yaw_init = self.current_yaw
+        # vx_local, vy_local, vyaw = 0.5, 0.0, 0.0
+        # dt = 0.2
+
+        # path = []
+
+        # for i in range(300):
+        #     time = i * dt
+        #     vx_global = vx_local * np.cos(yaw_init) - vy_local * np.sin(yaw_init)
+        #     vy_global = vx_local * np.sin(yaw_init) + vy_local * np.cos(yaw_init)
+        #     path_point = {
+        #         "t_from_start": time,
+        #         "x": x_init + time * vx_global,
+        #         "y": y_init + time * vy_global,
+        #         "yaw": yaw_init + time * vyaw,
+        #         "vx": vx_global,
+        #         "vy": vy_global,
+        #         "vyaw": vyaw,
+        #     } 
+        #     path.append(path_point)
+
+        # dt = 0.2
+        # time_seg = 0.2
+
+        # t = 0
+        # for k in range(3000):
+        #     t += dt
+        #     ts = t - time_seg
+        #     for i in range(30):
+        #         ts += time_seg
+        #         px_local = 0.5 * np.sin(0.5 * ts)
+        #         py_local = 0
+        #         vx_local = 0.5 * np.cos(0.5 * ts)
+        #         vy_local = 0
+
+        #         px_global = x_init + px_local * np.cos(yaw_init) - py_local * np.sin(yaw_init)
+        #         py_global = y_init + px_local * np.sin(yaw_init) + py_local * np.cos(yaw_init)
+                
+        #         vx_global = vx_local * np.cos(yaw_init) - vy_local * np.sin(yaw_init)
+        #         vy_global = vx_local * np.sin(yaw_init) + vy_local * np.cos(yaw_init)
+
+        #         path_point = {
+        #             "t_from_start": i * time_seg,
+        #             "x": px_global,
+        #             "y": py_global,
+        #             "yaw": yaw_init + ts * vyaw,
+        #             "vx": vx_global,
+        #             "vy": vy_global,
+        #             "vyaw": vyaw,
+        #         } 
+        #         path.append(path_point)
+
+        #     self.velocity_command.parameter = json.dumps(path)
+        #     self.velocity_command.header.identity.api_id = 1018
+
+        #     self.velocity_publisher.publish(self.velocity_command)
+        #     self.log(f"published path command {t}")
+
+        #     time.sleep(dt)
     
     def execute_path(self, path):
         self.executing_path = True
@@ -285,12 +384,15 @@ class RobotDogNode:
             
             # Create velocity command
             if ROS_AVAILABLE:
-                self.velocity_command = SportModeState()
-                self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
-                self.velocity_command.yaw_speed = 0.0
+                self.velocity_command = Request()
+                self.velocity_command.parameter = json.dumps({"x": velocity_x, "y": velocity_y, "z": 0.0})
+                self.velocity_command.header.identity.api_id = 1008
+                # self.velocity_command = SportModeState()
+                # self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
+                # self.velocity_command.yaw_speed = 0.0
             
             # Check for e-stop condition
-            self.is_estopped = self.check_estop()
+            self.check_estop()
             
             if self.is_estopped:
                 self.velocity_command.velocity = [0.0, 0.0, 0.0]
@@ -303,9 +405,6 @@ class RobotDogNode:
                 self.log(f"Test mode: Publishing velocity command: x={self.velocity_command.velocity[0]}, y={self.velocity_command.velocity[1]}")
             
             print("PUBLISH VELOCITY COMMAND", self.velocity_command)
-            
-            # Emit e-stop status
-            socketio.emit('estop_status', {'is_estopped': self.is_estopped})
             
             time.sleep(0.1)
         
@@ -350,13 +449,11 @@ def handle_execute_path(data):
     path = data['path']
     robot_dog_node.log("Received command to execute path")
     threading.Thread(target=robot_dog_node.execute_path, args=(path,), daemon=True).start()
-
-@socketio.on('toggle_estop')
-def handle_toggle_estop(data):
+    
+@socketio.on('step_forward')
+def handle_step_forward(data):
     global robot_dog_node
-    robot_dog_node.estop_active = data['estop_active']
-    robot_dog_node.log(f"E-Stop {'activated' if robot_dog_node.estop_active else 'deactivated'}")
-    socketio.emit('estop_status', {'is_estopped': robot_dog_node.is_estopped, 'estop_active': robot_dog_node.estop_active})
+    threading.Thread(target=robot_dog_node.step_forward, args=(), daemon=True).start()
 
 if __name__ == '__main__':
     robot_dog_node = RobotDogNode()
