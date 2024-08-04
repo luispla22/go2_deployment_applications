@@ -182,9 +182,9 @@ class RobotDogNode:
         self.log("Generating fake data")
         while self.testing_mode:
             socketio.emit('sportmode_update', json.dumps({
-                'velocity_x': random.uniform(-1, 1),
-                'velocity_y': random.uniform(-1, 1),
-                'yaw_speed': random.uniform(-1, 1),
+                'velocity_x': random.uniform(-0.05, 0.05),
+                'velocity_y': random.uniform(-0.05, 0.05),
+                'yaw_speed': random.uniform(-0.05, 0.05),
             }))
 
             socketio.emit('heightmap_update', json.dumps({
