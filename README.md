@@ -117,16 +117,34 @@ In the printout, you will see:
  ```
  Then you can go to your favorite web browser, type this into the address bar, and hit enter. The dashboard will load just like a website in your browser window. As it's running on your local machine, it'll show some spoofed data instead of sensor data from your robot.
 
- <img src="static/images/Dashboard_Screenshot.png" alt="Dashboard Screenshot"  width="100%" style="max-width: 800px;" />
+ <img src="img/Dashboard_Screenshot.png" alt="Dashboard Screenshot"  width="100%" style="max-width: 800px;" />
 
 ### Running the dashboard on Go2
-First, with your dog's ethernet connected, run this command on your local computer to transfer the dashboard files to the dog:
+If it is the first time you're running the dashboard on this dog, you'll need to install the python dependencies on the dog's computer. First, with your dog's ethernet connected, run this command on your local machine to upload the `jetson_packages` folder:
+```console
+PS C:\_\droneblocks_go2_mapping_deployment> scp -r .\jetson_packages unitree@192.168.123.18:/home/unitree
+```
+
+
+Then, run this command on your local computer to transfer the dashboard files to the dog:
 ```console
 PS C:\_\droneblocks_go2_mapping_deployment> scp -r dbdash_dashboard.html dbdash_server.py unitree@192.168.123.18:/home/unitree
 ```
-Next, ssh into the dog and run the dashboard there:
+
+Then, you can `ssh` into the dog:
 ```console
 PS C:\_\droneblocks_go2_mapping_deployment> ssh unitree@192.168.123.18
+```
+
+And run the script that installs the python packages:
+```console
+unitree@ubuntu:~$ cd jetson_packages
+unitree@ubuntu:~/jetson_packages$ chmod +x install_python_deps_windows_go2part.sh
+unitree@ubuntu:~/jetson_packages$ ./install_python_deps_windows_go2part.sh
+```
+
+Finally, while `ssh`ed into the dog, run the dashboard:
+```console
 unitree@ubuntu:~$ python dbdash_server.py
 ```
 Now, open your favorite web browser on your laptop. Type into the address bar: `http://192.168.123.18:9000`. The dashboard will load just like a website in your browser window. And this time, it's running on the dog so you'll see the live sensor data.
