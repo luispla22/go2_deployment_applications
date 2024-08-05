@@ -112,8 +112,8 @@ socket.on('sportmode_update', function(data) {
 
 socket.on('pointcloud_update', function(data) {
     const parsedData = JSON.parse(data);
-    const x = parsedData.points.map(p => p[0] / 2);
-    const y = parsedData.points.map(p => p[1] / 2);
+    const x = parsedData.points.map(p => p[0]);
+    const y = parsedData.points.map(p => p[1]);
     const z = parsedData.points.map(p => p[2]);
 
     const pointsTrace = {

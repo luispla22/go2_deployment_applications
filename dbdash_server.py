@@ -275,10 +275,7 @@ class RobotDogNode:
                 estop_condition = True
 
                 # Stop the robot
-                self.velocity_command = Request()
-                self.velocity_command.header.identity.api_id = 1003
-                self.velocity_publisher.publish(self.velocity_command)
-
+                self.stop_robot()
 
                 # Emit a message if transitioning from non-estop to estop state
                 if not self.is_estopped:
@@ -311,111 +308,69 @@ class RobotDogNode:
         self.velocity_command.header.identity.api_id = 1003
         self.velocity_publisher.publish(self.velocity_command)
         self.log("Commanded stop")
-
-        # build points
-
-        # x_init, y_init, z_init = self.current_position
-        # yaw_init = self.current_yaw
-        # vx_local, vy_local, vyaw = 0.5, 0.0, 0.0
-        # dt = 0.2
-
-        # path = []
-
-        # for i in range(300):
-        #     time = i * dt
-        #     vx_global = vx_local * np.cos(yaw_init) - vy_local * np.sin(yaw_init)
-        #     vy_global = vx_local * np.sin(yaw_init) + vy_local * np.cos(yaw_init)
-        #     path_point = {
-        #         "t_from_start": time,
-        #         "x": x_init + time * vx_global,
-        #         "y": y_init + time * vy_global,
-        #         "yaw": yaw_init + time * vyaw,
-        #         "vx": vx_global,
-        #         "vy": vy_global,
-        #         "vyaw": vyaw,
-        #     } 
-        #     path.append(path_point)
-
-        # dt = 0.2
-        # time_seg = 0.2
-
-        # t = 0
-        # for k in range(3000):
-        #     t += dt
-        #     ts = t - time_seg
-        #     for i in range(30):
-        #         ts += time_seg
-        #         px_local = 0.5 * np.sin(0.5 * ts)
-        #         py_local = 0
-        #         vx_local = 0.5 * np.cos(0.5 * ts)
-        #         vy_local = 0
-
-        #         px_global = x_init + px_local * np.cos(yaw_init) - py_local * np.sin(yaw_init)
-        #         py_global = y_init + px_local * np.sin(yaw_init) + py_local * np.cos(yaw_init)
-                
-        #         vx_global = vx_local * np.cos(yaw_init) - vy_local * np.sin(yaw_init)
-        #         vy_global = vx_local * np.sin(yaw_init) + vy_local * np.cos(yaw_init)
-
-        #         path_point = {
-        #             "t_from_start": i * time_seg,
-        #             "x": px_global,
-        #             "y": py_global,
-        #             "yaw": yaw_init + ts * vyaw,
-        #             "vx": vx_global,
-        #             "vy": vy_global,
-        #             "vyaw": vyaw,
-        #         } 
-        #         path.append(path_point)
-
-        #     self.velocity_command.parameter = json.dumps(path)
-        #     self.velocity_command.header.identity.api_id = 1018
-
-        #     self.velocity_publisher.publish(self.velocity_command)
-        #     self.log(f"published path command {t}")
-
-        #     time.sleep(dt)
     
     def execute_path(self, path):
         self.executing_path = True
         self.current_path = path
         
-        for point in self.current_path:
+        for i in range(len(path) - 1):
             if not self.executing_path:
                 break
             
-            # Calculate velocity commands based on current position and next point
-            velocity_x = 0.5
-            velocity_y = 0.0
+            target = np.array(path[i + 1])
             
-            # Create velocity command
-            if ROS_AVAILABLE:
+            while self.executing_path:
+                current_pos = np.array(self.current_position[:2])  # Only use x and y
+                distance_to_target = np.linalg.norm(target - current_pos)
+                
+                if distance_to_target < 0.1:  # If within 10cm of target, move to next point
+                    break
+                
+                # Calculate direction vector
+                direction = (target - current_pos) / distance_to_target
+                
+                # Set velocity components (with a maximum speed of 0.5 m/s)
+                speed = min(0.5, distance_to_target)  # Slow down as we approach the target
+                velocity_x, velocity_y = direction * speed
+                
+                # Create and send velocity command
                 self.velocity_command = Request()
-                self.velocity_command.parameter = json.dumps({"x": velocity_x, "y": velocity_y, "z": 0.0})
+                self.velocity_command.parameter = json.dumps({"x": float(velocity_x), "y": float(velocity_y), "z": 0.0})
                 self.velocity_command.header.identity.api_id = 1008
-                # self.velocity_command = SportModeState()
-                # self.velocity_command.velocity = [velocity_x, velocity_y, 0.0]
-                # self.velocity_command.yaw_speed = 0.0
+                
+                # Check for e-stop condition
+                self.check_estop()
+                
+                if self.is_estopped:
+                    self.stop_robot()
+                    self.log("E-Stop activated! Robot stopped.", "warning")
+                    return
+                
+                if ROS_AVAILABLE:
+                    self.velocity_publisher.publish(self.velocity_command)
+                else:
+                    self.log(f"Test mode: Publishing velocity command: x={velocity_x:.2f}, y={velocity_y:.2f}")
+                
+                time.sleep(0.1)  # Send command every 100ms
             
-            # Check for e-stop condition
-            self.check_estop()
-            
-            if self.is_estopped:
-                self.velocity_command.velocity = [0.0, 0.0, 0.0]
-                self.velocity_command.yaw_speed = 0.0
-                self.log("E-Stop activated! Robot stopped.", "warning")
-            
-            if ROS_AVAILABLE:
-                self.velocity_publisher.publish(self.velocity_command)
-            else:
-                self.log(f"Test mode: Publishing velocity command: x={self.velocity_command.velocity[0]}, y={self.velocity_command.velocity[1]}")
-            
-            print("PUBLISH VELOCITY COMMAND", self.velocity_command)
-            
-            time.sleep(0.1)
+            # Stop the robot between segments
+            self.stop_robot()
+            time.sleep(0.5)  # Short pause between segments
         
+        # Stop the robot at the end of the path
+        self.stop_robot()
+        self.log("Path execution completed")
         self.executing_path = False
         self.current_path = None
-        self.log("Path execution completed")
+
+    def stop_robot(self):
+        self.velocity_command = Request()
+        self.velocity_command.parameter = json.dumps({"x": 0.0, "y": 0.0, "z": 0.0})
+        self.velocity_command.header.identity.api_id = 1003  # Use api_id 1003 for stop command
+        if ROS_AVAILABLE:
+            self.velocity_publisher.publish(self.velocity_command)
+        else:
+            self.log("Test mode: Stopping robot")
 
 robot_dog_node = None
 

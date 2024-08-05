@@ -1,442 +1,75 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Droneblocks Go2 Navigation Dashboard</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='dbdash_dashboard.css') }}">
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Roboto', sans-serif;
-            background-color: #f0f2f5;
-            margin: 0;
-            padding: 20px;
-            color: #333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            flex-wrap: nowrap;
-        }
-        h1 {
-            width: 100%;
-            text-align: center;
-            color: #2c3e50;
-            margin-bottom: 0;
-            margin-bottom: 30px;
-        }
-        .chart {
-            width: 32%;
-            background-color: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            margin-bottom: 20px;
-            box-sizing: border-box;
-        }
-        #height-map, #point-cloud {
-            width: 100%;
-            height: 300px;
-        }
-        #sportmode-state {
-            font-size: 18px;
-            line-height: 1.2;
-        }
-        .value {
-            font-weight: bold;
-            color: #2980b9;
-        }
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 60px;
-            height: 34px;
-        }
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            transition: .4s;
-            border-radius: 34px;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 26px;
-            width: 26px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-        input:checked + .slider {
-            background-color: #2196F3;
-        }
-        input:checked + .slider:before {
-            transform: translateX(26px);
-        }
-        #log-console {
-            width: 100%;
-            height: 150px;
-            background-color: #f8f8f8;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            font-family: monospace;
-            font-size: 14px;
-            overflow-y: scroll;
-            margin-top: 20px;
-        }
-        .log-entry {
-            margin: 5px 0;
-        }
-        .log-info {
-            color: #333;
-        }
-        .log-warning {
-            color: #f39c12;
-        }
-        .log-error {
-            color: #e74c3c;
-        }
-        #status-indicator {
-            width: 100%;
-            text-align: center;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            color: #2c3e50;
-        }
-        .start-marker, .end-marker {
-            background-color: white;
-            border: 2px solid;
-            border-radius: 50%;
-            text-align: center;
-            color: white;
-            font-weight: bold;
-            width: 20px !important;
-            height: 20px !important;
-            line-height: 20px !important;
-        }
-        .start-marker {
-            border-color: red;
-            background-color: red;
-        }
-        .end-marker {
-            border-color: green;
-            background-color: green;
-        }
-        #execute-path-btn {
-            margin-left: 20px;
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #2ecc71;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        #execute-path-btn:disabled {
-            background-color: #95a5a6;
-            cursor: not-allowed;
-        }
-        #estop-status {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            margin-left: 10px;
-            vertical-align: middle;
-        }
-        .estop-active {
-            background-color: #e74c3c;
-        }
-        .estop-inactive {
-            background-color: #2ecc71;
-        }
-        .logo-container {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        #db-logo {
-            max-width: 400px;
-            height: auto;
-        }
-    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 </head>
 <body>
-    <div class="logo-container">
-        <img src="{{ url_for('static', filename='images/DB_logo_400px_100px.jpg') }}" alt="DroneBlocks Logo" id="db-logo">
-    </div>
-    <h1>Droneblocks Go2 Navigation Dashboard</h1>
-    <div style="text-align: center; margin-bottom: 20px;">
-        <label class="switch">
-            <input type="checkbox" id="testingModeToggle" {% if not ROS_AVAILABLE %}checked disabled{% endif %}>
-            <span class="slider"></span>
-        </label>
-        <span style="margin-left: 10px;">Testing Mode</span>
-        <button id="execute-path-btn">Execute Path</button>
-        <span style="margin-left: 10px;">E-Stop Active</span>
-        <div id="estop-status" class="estop-inactive"></div>
-    </div>
-    <div id="status-indicator"></div>
-    <div class="container">
-        <div class="chart">
-            <div id="height-map"></div>
+    <header>
+        <div class="header-content">
+            <div class="logo-container">
+                <img src="{{ url_for('static', filename='images/DB_logo_400px_100px.jpg') }}" alt="DroneBlocks Logo" id="db-logo">
+            </div>
+            <h1>Go2 Navigation Dashboard</h1>
         </div>
-        <div class="chart">
-            <div id="point-cloud"></div>
+    </header>
+
+    <main>
+        <div class="control-panel">
+            <div class="toggle-container">
+                <label class="switch">
+                    <input type="checkbox" id="testingModeToggle">
+                    <span class="slider round"></span>
+                </label>
+                <span>Testing Mode</span>
+            </div>
+            <button id="execute-path-btn" disabled>Execute Path</button>
+            <div class="estop-container">
+                <span>E-Stop</span>
+                <div id="estop-status" class="estop-inactive"></div>
+            </div>
         </div>
-        <div id="sportmode-state" class="chart">
-            <h2>Velocity</h2>
-            <p>X: <span id="velocity-x" class="value">-</span> m/s</p>
-            <p>Y: <span id="velocity-y" class="value">-</span> m/s</p>
-            <p>Yaw: <span id="yaw-speed" class="value">-</span> rad/s</p>
-            <h2>Position</h2>
-            <p>X: <span id="position-x" class="value">-</span> m</p>
-            <p>Y: <span id="position-y" class="value">-</span> m</p>
-            <p>Yaw: <span id="yaw-angle" class="value">-</span> rad</p>
+
+        <div id="status-indicator"></div>
+
+        <div class="dashboard-grid">
+            <div class="chart">
+                <h2>Height Map</h2>
+                <div id="height-map"></div>
+            </div>
+            <div class="chart">
+                <h2>LiDAR Point Cloud</h2>
+                <div id="point-cloud"></div>
+            </div>
+            <div id="sportmode-state" class="chart">
+                <h2>Robot State</h2>
+                <div class="state-grid">
+                    <div>
+                        <h3>Velocity</h3>
+                        <p>X: <span id="velocity-x" class="value">-</span> m/s</p>
+                        <p>Y: <span id="velocity-y" class="value">-</span> m/s</p>
+                        <p>Yaw: <span id="yaw-speed" class="value">-</span> rad/s</p>
+                    </div>
+                    <div>
+                        <h3>Position</h3>
+                        <p>X: <span id="position-x" class="value">-</span> m</p>
+                        <p>Y: <span id="position-y" class="value">-</span> m</p>
+                        <p>Yaw: <span id="yaw-angle" class="value">-</span> rad</p>
+                    </div>
+                </div>
+            </div>
         </div>
-    </div>
-    <div id="log-console"></div>
 
-    <script>
-        const socket = io();
-        let heightmapData = null;
-        let startPoint = null;
-        let endPoint = null;
-        let pathData = null;
-        let isPlanning = false;
-        let map = null;
-        let heatmapLayer = null;
-        let startMarker = null;
-        let endMarker = null;
-        let pathLayer = null;
+        <div id="log-console"></div>
+    </main>
 
-        const testingModeToggle = document.getElementById('testingModeToggle');
-        const logConsole = document.getElementById('log-console');
-        const statusIndicator = document.getElementById('status-indicator');
-        const executePathBtn = document.getElementById('execute-path-btn');
-
-        // executePathBtn.addEventListener('click', function() {
-        //     if (pathData) {
-        //         socket.emit('execute_path', { path: pathData });
-        //         logMessage("Executing path...");
-        //         statusIndicator.textContent = "Executing path...";
-        //     }
-        // });
-
-        executePathBtn.addEventListener('click', function() {
-            socket.emit('step_forward', {});
-            logMessage("Executing path...");
-            statusIndicator.textContent = "Executing path...";
-        });
-
-        socket.on('path_result', function(data) {
-            pathData = JSON.parse(data);
-            if (pathLayer) {
-                map.removeLayer(pathLayer);
-            }
-            pathLayer = L.polyline(pathData, {color: 'blue'}).addTo(map);
-            isPlanning = false;
-            statusIndicator.textContent = "Path planning complete. Click 'Execute Path' to start.";
-            logMessage(`Path planning complete. Path length: ${pathData.length} points`);
-            executePathBtn.disabled = false;  // Enable the button
-        });
-
-        testingModeToggle.addEventListener('change', function() {
-            socket.emit('toggle_testing_mode', {testing_mode: this.checked});
-        });
-
-        function logMessage(message, level = 'info') {
-            console.log(`[${level.toUpperCase()}] ${message}`);
-            const logEntry = document.createElement('div');
-            logEntry.className = `log-entry log-${level}`;
-            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logConsole.appendChild(logEntry);
-            logConsole.scrollTop = logConsole.scrollHeight;
-        }
-
-        function initMap() {
-            map = L.map('height-map', {
-                crs: L.CRS.Simple,
-                minZoom: -2
-            });
-
-            map.on('click', function(e) {
-                if (isPlanning) {
-                    logMessage("Path planning in progress. Please wait.", "warning");
-                    return;
-                }
-
-                const y = Math.floor(e.latlng.lat);
-                const x = Math.floor(e.latlng.lng);
-
-                if (x >= 0 && x < heightmapData.width && y >= 0 && y < heightmapData.height) {
-                    if (!startPoint) {
-                        startPoint = [y, x];  // Store as [y, x]
-                        startMarker = L.marker([y, x], {icon: L.divIcon({className: 'start-marker', html: 'S'})}).addTo(map);
-                        statusIndicator.textContent = "Start point selected. Click to set end point.";
-                        logMessage(`Start point set at (${y}, ${x})`);
-                    } else if (!endPoint) {
-                        endPoint = [y, x];  // Store as [y, x]
-                        endMarker = L.marker([y, x], {icon: L.divIcon({className: 'end-marker', html: 'E'})}).addTo(map);
-                        statusIndicator.textContent = "End point selected. Planning path...";
-                        logMessage(`End point set at (${y}, ${x}). Planning path...`);
-
-                        isPlanning = true;
-                        socket.emit('plan_path', { start: startPoint, end: endPoint });
-                    }
-                }
-            });
-        }
-
-        function updateHeightMap() {
-            if (!heightmapData || !map) return;
-
-            if (heatmapLayer) {
-                map.removeLayer(heatmapLayer);
-            }
-
-            const bounds = [[0, 0], [heightmapData.height, heightmapData.width]];
-            heatmapLayer = L.imageOverlay(heightmapDataToImage(heightmapData), bounds).addTo(map);
-            map.fitBounds(bounds);
-        }
-
-        function heightmapDataToImage(data) {
-            const canvas = document.createElement('canvas');
-            canvas.width = data.width;
-            canvas.height = data.height;
-            const ctx = canvas.getContext('2d');
-            const imageData = ctx.createImageData(data.width, data.height);
-
-            for (let i = 0; i < data.data.length; i++) {
-                const value = Math.floor(data.data[i] * 255);
-                imageData.data[i * 4] = value;
-                imageData.data[i * 4 + 1] = value;
-                imageData.data[i * 4 + 2] = value;
-                imageData.data[i * 4 + 3] = 255;
-            }
-
-            ctx.putImageData(imageData, 0, 0);
-            return canvas.toDataURL();
-        }
-
-        socket.on('sportmode_update', function(data) {
-            const parsedData = JSON.parse(data);
-            document.getElementById('velocity-x').textContent = parsedData.velocity_x.toFixed(3);
-            document.getElementById('velocity-y').textContent = parsedData.velocity_y.toFixed(3);
-            document.getElementById('yaw-speed').textContent = parsedData.yaw_speed.toFixed(3);
-            document.getElementById('position-x').textContent = parsedData.position_x.toFixed(3);
-            document.getElementById('position-y').textContent = parsedData.position_y.toFixed(3);
-            document.getElementById('yaw-angle').textContent = parsedData.yaw.toFixed(3);
-        });
-
-        socket.on('pointcloud_update', function(data) {
-            const parsedData = JSON.parse(data);
-            const x = parsedData.points.map(p => p[0] / 2);
-            const y = parsedData.points.map(p => p[1] / 2);
-            const z = parsedData.points.map(p => p[2]);
-        
-            const pointsTrace = {
-                x: x,
-                y: y,
-                mode: 'markers',
-                type: 'scatter',
-                marker: {
-                    size: 5,
-                    color: z,
-                    colorscale: 'Viridis',
-                    colorbar: {title: 'Height (m)'},
-                    cmin: -0.4,
-                    cmax: 0.0,
-                }
-            };
-        
-            Plotly.newPlot('point-cloud', [pointsTrace], {
-                title: 'LiDAR Point Cloud (Top-Down View)',
-                width: 350,
-                height: 300,
-                margin: { t: 30, b: 30, l: 30, r: 30 },
-                xaxis: { title: 'X (m)', range: [-1.0, 1.0], scaleanchor: 'y', scaleratio: 1 },
-                yaxis: { title: 'Y (m)', range: [-1.0, 1.0] },
-                shapes: [{
-                    type: 'path',
-                    path: 'M 0 0 L 0 0.3 L -0.05 0.25 M 0 0.3 L 0.05 0.25',
-                    line: {
-                        color: 'red',
-                        width: 3
-                    }
-                }],
-                annotations: [{
-                    x: 0,
-                    y: -0.05,
-                    xref: 'x',
-                    yref: 'y',
-                    text: 'Go2',
-                    showarrow: false,
-                    font: {
-                        color: 'red'
-                    }
-                }]
-            });
-        });
-
-        socket.on('heightmap_update', function(data) {
-            heightmapData = JSON.parse(data);
-            if (!map) {
-                initMap();
-            }
-            updateHeightMap();
-        });
-
-        socket.on('path_result', function(data) {
-            pathData = JSON.parse(data);
-            if (pathLayer) {
-                map.removeLayer(pathLayer);
-            }
-            // Assuming pathData is already in [y, x] format
-            pathLayer = L.polyline(pathData, {color: 'blue'}).addTo(map);
-            isPlanning = false;
-            statusIndicator.textContent = "Path planning complete.";
-            logMessage(`Path planning complete. Path length: ${pathData.length} points`);
-        });
-
-        const estopStatus = document.getElementById('estop-status');
-
-        socket.on('estop_status', function(data) {
-            estopStatus.className = data.is_estopped ? 'estop-active' : 'estop-inactive';
-            if (data.is_estopped) {
-                logMessage("E-Stop activated! Robot stopped.", "warning");
-            }
-            else {
-                logMessage("E-Stop deactivated! Robot moving.");
-            }
-        });
-
-        socket.on('log', function(data) {
-            logMessage(data.message, data.level);
-        });
-
-        window.addEventListener('load', function() {
-            logMessage("Dashboard loaded");
-            statusIndicator.textContent = "Click on the height map to set start point.";
-        });
-    </script>
+    <script src="{{ url_for('static', filename='dbdash_dashboard.js') }}"></script>
 </body>
 </html>

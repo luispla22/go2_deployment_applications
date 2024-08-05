@@ -1,0 +1,4 @@
+websockets
+importlib-metadata
+flask
+flask_socketio
