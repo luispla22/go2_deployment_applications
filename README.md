@@ -111,7 +111,7 @@ You can run the following python command to start the dashboard:
 ```console
 PS C:\_\droneblocks_go2_mapping_deployment> python dbdash_server.py
 ```
-In the printout, you will see:
+In the output, you will see:
 ```console
  * Running on http://127.0.0.1:9000
  ```
@@ -141,13 +141,19 @@ And run the script that installs the python packages:
 unitree@ubuntu:~$ cd jetson_packages
 unitree@ubuntu:~/jetson_packages$ chmod +x install_python_deps_windows_go2part.sh
 unitree@ubuntu:~/jetson_packages$ ./install_python_deps_windows_go2part.sh
+unitree@ubuntu:~/jetson_packages$ cd ..
 ```
 
-Finally, while `ssh`ed into the dog, run the dashboard:
+You'll need to run a command to initialize Unitree's ROS library:
+```console
+unitree@ubuntu:~$ source /home/unitree/unitree_ros2/setup.sh
+```
+
+Finally, while `ssh`ed into the dog, run the dashboard file located in the home directory:
 ```console
 unitree@ubuntu:~$ python dbdash_server.py
 ```
-Now, open your favorite web browser on your laptop. Type into the address bar: `http://192.168.123.18:9000`. The dashboard will load just like a website in your browser window. And this time, it's running on the dog so you'll see the live sensor data.
+Now, open your favorite web browser on your local machine. Type into the address bar: `http://192.168.123.18:9000`. The dashboard will load just like a website in your browser window. And this time, it's running on the dog so you'll see the live sensor data.
 
 
 ## Example Application: Emergency Stop
