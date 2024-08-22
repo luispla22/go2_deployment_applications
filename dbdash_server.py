@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 import json
 import threading
@@ -6,14 +7,13 @@ import random
 import time
 from flask import Flask, render_template_string
 from flask_socketio import SocketIO
+import logging
 import numpy as np
 from queue import PriorityQueue
 from scipy.spatial import cKDTree
-
+ 
 # Try to import ROS 2 modules, but continue if not available
 try:
-    # subprocess.run(['source', '/home/unitree/unitree_ros2/cyclonedds_ws/src/install/setup.bash'], shell=True, check=False)
-    subprocess.run(['source', '/home/unitree/unitree_ros2/setup.sh'], shell=True, check=False)
     import rclpy
     from rclpy.node import Node
     from unitree_go.msg import SportModeState, HeightMap, SportModeCmd
@@ -21,12 +21,21 @@ try:
     from sensor_msgs.msg import PointCloud2
     import struct
     ROS_AVAILABLE = True
-except ImportError:
-    print("Warning: ROS 2 modules not found. Running in test mode only.")
+except ImportError as e:
+    print(f"Warning: ROS 2 modules not found. Running in test mode only.")
+    RED = '\033[91m'
+    RESET = '\033[0m'
+
+    print(f"{RED}If you are on the dog, don't forget to run `source unitree_ros2/setup.sh` or similar before running the script, or add this to your ~/.bashrc file!{RESET}")
+
     ROS_AVAILABLE = False
 
 app = Flask(__name__)
 socketio = SocketIO(app, async_mode='threading')
+app.logger.setLevel(logging.ERROR)
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+logging.getLogger('socketio').setLevel(logging.ERROR)
+logging.getLogger('engineio').setLevel(logging.ERROR)
 
 class RobotDogNode:
     def __init__(self):
@@ -152,7 +161,7 @@ class RobotDogNode:
             gridded_points_list = gridded_points.tolist()
             
             # Check estop and emit status
-            self.check_estop()
+            self.check_estop(gridded_points)
 
             # Emit to socketio
             socketio.emit('pointcloud_update', json.dumps({'points': gridded_points_list}))
@@ -257,14 +266,14 @@ class RobotDogNode:
 
         return path
     
-    def check_estop(self):
+    def check_estop(self, gridded_points):
 
         # Define the front area of the robot
         front_area = np.array([[-0.2, 0.2], [0.3, 0.5]])  # [x_min, x_max], [y_min, y_max]
 
         # Filter points in the front area
-        mask = (self.gridded_points[:, 0] >= front_area[0, 0]) & (self.gridded_points[:, 0] <= front_area[0, 1]) & \
-               (self.gridded_points[:, 1] >= front_area[1, 0]) & (self.gridded_points[:, 1] <= front_area[1, 1])
+        mask = (gridded_points[:, 0] >= front_area[0, 0]) & (gridded_points[:, 0] <= front_area[0, 1]) & \
+               (gridded_points[:, 1] >= front_area[1, 0]) & (gridded_points[:, 1] <= front_area[1, 1])
         front_points = self.gridded_points[mask]
 
         estop_condition = False
@@ -276,12 +285,6 @@ class RobotDogNode:
 
                 # Stop the robot
                 self.stop_robot()
-
-                # Emit a message if transitioning from non-estop to estop state
-                if not self.is_estopped:
-                    socketio.emit('estop_status', {'is_estopped': True})
-                self.is_estopped = True
-                return
 
         # Check if the estop status has just changed
         if estop_condition != self.is_estopped:
@@ -339,7 +342,7 @@ class RobotDogNode:
                 self.velocity_command.header.identity.api_id = 1008
                 
                 # Check for e-stop condition
-                self.check_estop()
+                self.check_estop(self.gridded_points)
                 
                 if self.is_estopped:
                     self.stop_robot()
