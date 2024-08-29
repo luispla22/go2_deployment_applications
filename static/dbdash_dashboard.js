@@ -1,12 +1,13 @@
 const socket = io();
 let heightmapData = null;
+let robotPosition = null;
 let startPoint = null;
 let endPoint = null;
 let pathData = null;
 let isPlanning = false;
 let map = null;
 let heatmapLayer = null;
-let startMarker = null;
+let robotMarker = null;
 let endMarker = null;
 let pathLayer = null;
 
@@ -17,9 +18,14 @@ const executePathBtn = document.getElementById('execute-path-btn');
 const estopStatus = document.getElementById('estop-status');
 
 executePathBtn.addEventListener('click', function() {
-    socket.emit('step_forward', {});
-    logMessage("Executing path...");
-    statusIndicator.textContent = "Executing path...";
+    if (pathData) {
+        socket.emit('execute_path', { path: pathData });
+        logMessage("Executing path...");
+        statusIndicator.textContent = "Executing path...";
+        executePathBtn.disabled = true;
+    } else {
+        logMessage("No path available to execute", "error");
+    }
 });
 
 testingModeToggle.addEventListener('change', function() {
@@ -51,19 +57,19 @@ function initMap() {
         const x = Math.floor(e.latlng.lng);
 
         if (x >= 0 && x < heightmapData.width && y >= 0 && y < heightmapData.height) {
-            if (!startPoint) {
-                startPoint = [y, x];
-                startMarker = L.marker([y, x], {icon: L.divIcon({className: 'start-marker', html: 'S'})}).addTo(map);
-                statusIndicator.textContent = "Start point selected. Click to set end point.";
-                logMessage(`Start point set at (${y}, ${x})`);
-            } else if (!endPoint) {
-                endPoint = [y, x];
-                endMarker = L.marker([y, x], {icon: L.divIcon({className: 'end-marker', html: 'E'})}).addTo(map);
-                statusIndicator.textContent = "End point selected. Planning path...";
-                logMessage(`End point set at (${y}, ${x}). Planning path...`);
+            endPoint = [y, x];
+            if (endMarker) {
+                map.removeLayer(endMarker);
+            }
+            endMarker = L.marker([y, x], {icon: L.divIcon({className: 'end-marker', html: 'E'})}).addTo(map);
+            statusIndicator.textContent = "End point selected. Planning path...";
+            logMessage(`End point set at (${y}, ${x}). Planning path...`);
 
+            if (robotPosition) {
                 isPlanning = true;
-                socket.emit('plan_path', { start: startPoint, end: endPoint });
+                socket.emit('plan_path', { start: robotPosition, end: endPoint });
+            } else {
+                logMessage("Unable to plan path: Robot position unknown", "error");
             }
         }
     });
@@ -79,25 +85,6 @@ function updateHeightMap() {
     const bounds = [[0, 0], [heightmapData.height, heightmapData.width]];
     heatmapLayer = L.imageOverlay(heightmapDataToImage(heightmapData), bounds).addTo(map);
     map.fitBounds(bounds);
-}
-
-function heightmapDataToImage(data) {
-    const canvas = document.createElement('canvas');
-    canvas.width = data.width;
-    canvas.height = data.height;
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(data.width, data.height);
-
-    for (let i = 0; i < data.data.length; i++) {
-        const value = Math.floor(data.data[i] * 255);
-        imageData.data[i * 4] = value;
-        imageData.data[i * 4 + 1] = value;
-        imageData.data[i * 4 + 2] = value;
-        imageData.data[i * 4 + 3] = 255;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    return canvas.toDataURL();
 }
 
 socket.on('sportmode_update', function(data) {
@@ -166,7 +153,55 @@ socket.on('heightmap_update', function(data) {
         initMap();
     }
     updateHeightMap();
+    
+    // Update robot position
+    if (heightmapData.robot_position) {
+        robotPosition = heightmapData.robot_position;
+        const [robotX, robotY] = robotPosition;
+        if (!robotMarker) {
+            robotMarker = L.marker([robotY, robotX], {
+                icon: L.divIcon({className: 'robot-marker', html: 'R'})
+            }).addTo(map);
+        } else {
+            robotMarker.setLatLng([robotY, robotX]);
+        }
+    }
 });
+
+function heightmapDataToImage(data) {
+    const canvas = document.createElement('canvas');
+    canvas.width = data.width;
+    canvas.height = data.height;
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(data.width, data.height);
+
+    for (let i = 0; i < data.data.length; i++) {
+        const value = data.data[i];
+        if (value === null) {
+            // Handle unknown areas (e.g., make them transparent)
+            imageData.data[i * 4] = 0;
+            imageData.data[i * 4 + 1] = 0;
+            imageData.data[i * 4 + 2] = 0;
+            imageData.data[i * 4 + 3] = 0;
+        } else if (value === 2.0) {
+            // Robot position - make it red
+            imageData.data[i * 4] = 255;
+            imageData.data[i * 4 + 1] = 0;
+            imageData.data[i * 4 + 2] = 0;
+            imageData.data[i * 4 + 3] = 255;
+        } else {
+            // Normal heightmap data
+            const colorValue = Math.floor(value * 255);
+            imageData.data[i * 4] = colorValue;
+            imageData.data[i * 4 + 1] = colorValue;
+            imageData.data[i * 4 + 2] = colorValue;
+            imageData.data[i * 4 + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.toDataURL();
+}
 
 socket.on('path_result', function(data) {
     pathData = JSON.parse(data);
@@ -178,6 +213,14 @@ socket.on('path_result', function(data) {
     statusIndicator.textContent = "Path planning complete. Click 'Execute Path' to start.";
     logMessage(`Path planning complete. Path length: ${pathData.length} points`);
     executePathBtn.disabled = false;
+});
+
+socket.on('robot_position_update', function(data) {
+    const position = JSON.parse(data);
+    robotPosition = [position.y, position.x];
+    if (robotMarker) {
+        robotMarker.setLatLng([position.y, position.x]);
+    }
 });
 
 socket.on('estop_status', function(data) {

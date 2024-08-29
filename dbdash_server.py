@@ -9,8 +9,7 @@ from flask import Flask, render_template_string
 from flask_socketio import SocketIO
 import logging
 import numpy as np
-from queue import PriorityQueue
-from scipy.spatial import cKDTree
+from collections import deque
  
 # Try to import ROS 2 modules, but continue if not available
 try:
@@ -85,12 +84,81 @@ class RobotDogNode:
 
     def heightmap_callback(self, msg):
         if not self.testing_mode:
-            socketio.emit('heightmap_update', json.dumps({
-                'width': int(msg.width),
-                'height': int(msg.height),
-                'data': [min(max(float(x), 0.0), 1.0) if x < 1000000000.0 else None for x in msg.data]
-            }))
+            # Extract relevant information from the message
+            width = int(msg.width)
+            height = int(msg.height)
+            self.heightmap_origin_x, self.heightmap_origin_y = float(msg.origin[0]), float(msg.origin[1])
+            self.heightmap_resolution = float(msg.resolution)
+            
+            # Convert heightmap data to numpy array
+            heightmap = np.array(msg.data).reshape(height, width)
 
+            # Calculate robot position in grid coordinates
+            robot_x = int((self.current_position[0] - self.heightmap_origin_x) / self.heightmap_resolution)
+            robot_y = int((self.current_position[1] - self.heightmap_origin_y) / self.heightmap_resolution)
+
+            # Ensure robot position is within the heightmap bounds
+            robot_x = np.clip(robot_x, 0, width - 1)
+            robot_y = np.clip(robot_y, 0, height - 1)
+
+            # Create rotation matrix
+            angle = self.current_yaw - np.pi/2  # Negative because we want to rotate the map, not the robot
+            cos_angle, sin_angle = np.cos(angle), np.sin(angle)
+            rotation_matrix = np.array([[cos_angle, -sin_angle],
+                                        [sin_angle, cos_angle]])
+
+            # Create grid of coordinates
+            y, x = np.indices((height, width))
+            coordinates = np.stack((x.ravel() - robot_x, y.ravel() - robot_y), axis=-1)
+
+            # Apply rotation
+            rotated_coordinates = np.dot(coordinates, rotation_matrix.T)
+            rotated_x, rotated_y = rotated_coordinates[:, 0], rotated_coordinates[:, 1]
+
+            # Reshape back to grid
+            rotated_x = rotated_x.reshape(height, width) + robot_x
+            rotated_y = rotated_y.reshape(height, width) + robot_y
+
+            # Interpolate values (nearest neighbor)
+            valid_indices = (rotated_x >= 0) & (rotated_x < width) & (rotated_y >= 0) & (rotated_y < height)
+            rotated_heightmap = np.full((height, width), 1000000000.0)  # Fill with "unknown" value
+            rotated_heightmap[valid_indices] = heightmap[rotated_y[valid_indices].astype(int), rotated_x[valid_indices].astype(int)]
+
+            # Add a colored dot for the robot (using a distinctive value, e.g., 2.0)
+            robot_marker_value = 2.0
+            rotated_heightmap[robot_y, robot_x] = robot_marker_value
+
+            # Reflect along x and y
+            self.rotated_heightmap = rotated_heightmap[::-1, :]
+
+            # Threshold by obstacle height
+            obstacle_threshold = 0.07
+            self.rotated_heightmap[self.rotated_heightmap > 1.0] = 0
+            self.rotated_heightmap = self.rotated_heightmap > obstacle_threshold
+
+            # Dilate
+            self.rotated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=2)
+
+            # Flatten the heightmap and convert to a list of Python floats
+            processed_data = self.rotated_heightmap.flatten().tolist()
+
+            # Prepare the data for emission
+            emitted_data = [
+                min(max(float(x), 0.0), 1.0) if x < 1000000000.0 else None if x != robot_marker_value else robot_marker_value
+                for x in processed_data
+            ]
+
+            # Ensure all data is JSON serializable
+            json_data = {
+                'width': width,
+                'height': height,
+                'data': emitted_data,
+                'robot_position': [int(robot_x), int(robot_y)],
+                'rotation': float(np.degrees(self.current_yaw))
+            }
+
+            socketio.emit('heightmap_update', json.dumps(json_data))
+            
     def pointcloud_callback(self, msg):
         if not self.testing_mode:
             # Unpack points from the message
@@ -226,45 +294,72 @@ class RobotDogNode:
             self.generate_fake_data()
             
     def calculate_path(self, start, goal, heightmap):
-        def heuristic(a, b):
-            return np.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
+        # Downsample the heightmap
+        height, width = heightmap.shape
+
+        # Adjust start and goal for downsampled map
+        ds_start = (start[0], start[1])
+        ds_goal = (goal[0], goal[1])
+
+        def is_valid(pos):
+            return (0 <= pos[0] < height and 
+                    0 <= pos[1] < width and 
+                    heightmap[pos[0]][pos[1]] == 0)  # Adjust this threshold as needed
 
         def get_neighbors(pos):
             neighbors = []
             for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]:
                 new_pos = (pos[0] + dx, pos[1] + dy)
-                if 0 <= new_pos[0] < len(heightmap) and 0 <= new_pos[1] < len(heightmap[0]):
+                if is_valid(new_pos):
                     neighbors.append(new_pos)
             return neighbors
 
-        frontier = PriorityQueue()
-        frontier.put((0, start))
-        came_from = {start: None}
-        cost_so_far = {start: 0}
+        queue = deque([ds_start])
+        visited = set([ds_start])
+        came_from = {ds_start: None}
 
-        while not frontier.empty():
-            current = frontier.get()[1]
-
-            if current == goal:
+        while queue:
+            current = queue.popleft()
+            
+            if current == ds_goal:
                 break
 
             for next_pos in get_neighbors(current):
-                new_cost = cost_so_far[current] + heightmap[next_pos[0]][next_pos[1]]
-                if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
-                    cost_so_far[next_pos] = new_cost
-                    priority = new_cost + heuristic(goal, next_pos)
-                    frontier.put((priority, next_pos))
+                if next_pos not in visited:
+                    queue.append(next_pos)
+                    visited.add(next_pos)
                     came_from[next_pos] = current
 
+        # Reconstruct path
+        if ds_goal not in came_from:
+            print("No path found")
+            return []
+
         path = []
-        current = goal
-        while current != start:
+        current = ds_goal
+        while current != ds_start:
             path.append(current)
             current = came_from[current]
-        path.append(start)
+        path.append(ds_start)
         path.reverse()
 
-        return path
+        # Upsample the path back to original resolution
+        upsampled_path = [(p[0], p[1]) for p in path]
+        return upsampled_path
+
+    def dilate_obstacles(self, heightmap, radius):
+        # Create a circular kernel
+        y, x = np.ogrid[-radius:radius+1, -radius:radius+1]
+        kernel = x**2 + y**2 <= radius**2
+
+        # Perform dilation
+        dilated = np.zeros_like(heightmap)
+        for i in range(-radius, radius+1):
+            for j in range(-radius, radius+1):
+                if kernel[i+radius, j+radius]:
+                    dilated |= np.roll(np.roll(heightmap, i, axis=0), j, axis=1)
+
+        return dilated   
     
     def check_estop(self, gridded_points):
 
@@ -315,12 +410,28 @@ class RobotDogNode:
     def execute_path(self, path):
         self.executing_path = True
         self.current_path = path
-        
+
+        ## Convert the path to the robot's local frame
+        # Scale
+        path = [(p[0] * self.heightmap_resolution, p[1] * self.heightmap_resolution) for p in path]
+        # Shift
+        start_point = path[0]
+        path = [(p[0] - start_point[0], p[1] - start_point[1]) for p in path]
+        # Rotate
+        cos_yaw = np.cos(self.current_yaw + np.pi/2)
+        sin_yaw = np.sin(self.current_yaw + np.pi/2)
+        path = [(p[0] * cos_yaw - p[1] * sin_yaw, p[0] * sin_yaw + p[1] * cos_yaw) for p in path]
+
+        print(path, self.current_yaw)
+
+        # Move to each point in the path sequentially
+
         for i in range(len(path) - 1):
             if not self.executing_path:
                 break
             
             target = np.array(path[i + 1])
+            print(target, self.current_position[:2])
             
             while self.executing_path:
                 current_pos = np.array(self.current_position[:2])  # Only use x and y
@@ -401,7 +512,8 @@ def handle_plan_path(data):
     global robot_dog_node
     start = tuple(data['start'])
     end = tuple(data['end'])
-    heightmap = np.array(robot_dog_node.test_heightmap)  # Use the test heightmap for now
+    # heightmap = np.array(robot_dog_node.test_heightmap)  # Use the test heightmap for now
+    heightmap = robot_dog_node.rotated_heightmap[::-1, :]
     path = robot_dog_node.calculate_path(start, end, heightmap)
     print(start, end, path)
     socketio.emit('path_result', json.dumps(path))
