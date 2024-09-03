@@ -124,23 +124,25 @@ class RobotDogNode:
             rotated_heightmap = np.full((height, width), 1000000000.0)  # Fill with "unknown" value
             rotated_heightmap[valid_indices] = heightmap[rotated_y[valid_indices].astype(int), rotated_x[valid_indices].astype(int)]
 
-            # Add a colored dot for the robot (using a distinctive value, e.g., 2.0)
-            robot_marker_value = 2.0
-            rotated_heightmap[robot_y, robot_x] = robot_marker_value
-
             # Reflect along x and y
             self.rotated_heightmap = rotated_heightmap[::-1, :]
 
             # Threshold by obstacle height
-            obstacle_threshold = 0.07
+            obstacle_threshold = 0.25
             self.rotated_heightmap[self.rotated_heightmap > 1.0] = 0
             self.rotated_heightmap = self.rotated_heightmap > obstacle_threshold
 
             # Dilate
-            self.rotated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=2)
+            dilated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=4)
+            self.rotated_heightmap[dilated_heightmap > 0] = 0.5
+
+            # Add a colored dot for the robot (using a distinctive value, e.g., 2.0)
+            emitted_heightmap = self.rotated_heightmap[:, :]
+            robot_marker_value = 2.0
+            emitted_heightmap[robot_y, robot_x] = robot_marker_value
 
             # Flatten the heightmap and convert to a list of Python floats
-            processed_data = self.rotated_heightmap.flatten().tolist()
+            processed_data = emitted_heightmap.flatten().tolist()
 
             # Prepare the data for emission
             emitted_data = [
@@ -417,36 +419,30 @@ class RobotDogNode:
         # Shift
         start_point = path[0]
         path = [(p[0] - start_point[0], p[1] - start_point[1]) for p in path]
-        # Rotate
-        cos_yaw = np.cos(self.current_yaw + np.pi/2)
-        sin_yaw = np.sin(self.current_yaw + np.pi/2)
-        path = [(p[0] * cos_yaw - p[1] * sin_yaw, p[0] * sin_yaw + p[1] * cos_yaw) for p in path]
+        path = [(p[0], -1 * p[1]) for p in path]
 
-        print(path, self.current_yaw)
-
-        # Move to each point in the path sequentially
-
+        # Execute the path open-loop
         for i in range(len(path) - 1):
             if not self.executing_path:
                 break
             
             target = np.array(path[i + 1])
-            print(target, self.current_position[:2])
+            prev_target = np.array(path[i])
+            velocity = target - prev_target
+            speed = 0.3
+            duration = np.linalg.norm(velocity) / speed
+            velocity = velocity / duration
+            print(target, self.current_position[:2], velocity, duration)
+
+            t_start = time.time()
             
             while self.executing_path:
-                current_pos = np.array(self.current_position[:2])  # Only use x and y
-                distance_to_target = np.linalg.norm(target - current_pos)
                 
-                if distance_to_target < 0.1:  # If within 10cm of target, move to next point
+                if time.time() - t_start > duration:  # If within 10cm of target, move to next point
                     break
                 
-                # Calculate direction vector
-                direction = (target - current_pos) / distance_to_target
-                
-                # Set velocity components (with a maximum speed of 0.5 m/s)
-                speed = min(0.5, distance_to_target)  # Slow down as we approach the target
-                velocity_x, velocity_y = direction * speed
-                
+                velocity_x, velocity_y = velocity[0], velocity[1]
+
                 # Create and send velocity command
                 self.velocity_command = Request()
                 self.velocity_command.parameter = json.dumps({"x": float(velocity_x), "y": float(velocity_y), "z": 0.0})
@@ -465,12 +461,8 @@ class RobotDogNode:
                 else:
                     self.log(f"Test mode: Publishing velocity command: x={velocity_x:.2f}, y={velocity_y:.2f}")
                 
-                time.sleep(0.1)  # Send command every 100ms
+                time.sleep(0.02)  # Send command every 50ms
             
-            # Stop the robot between segments
-            self.stop_robot()
-            time.sleep(0.5)  # Short pause between segments
-        
         # Stop the robot at the end of the path
         self.stop_robot()
         self.log("Path execution completed")
