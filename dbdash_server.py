@@ -269,8 +269,13 @@ class RobotDogNode:
             socketio.emit('heightmap_update', json.dumps({
                 'width': len(self.test_heightmap[0]),
                 'height': len(self.test_heightmap),
-                'data': [item for sublist in self.test_heightmap for item in sublist]
+                'data': [item for sublist in self.test_heightmap for item in sublist],
+                'robot_position': [25, 25],
+                'rotation': 0.0
             }))
+            
+            # Store the data in the RobotDogNode class
+            self.rotated_heightmap = np.array(self.test_heightmap)
 
             points = []
             for y in range(len(self.test_heightmap)):
@@ -296,19 +301,20 @@ class RobotDogNode:
             self.generate_fake_data()
             
     def calculate_path(self, start, goal, heightmap):
-        # Downsample the heightmap
+        '''
+        Breadth-first search for a path from `start` to `goal`
+        '''
+        
         height, width = heightmap.shape
 
-        # Adjust start and goal for downsampled map
-        ds_start = (start[0], start[1])
-        ds_goal = (goal[0], goal[1])
-
         def is_valid(pos):
+            # query pos is in bounds and not in collision
             return (0 <= pos[0] < height and 
                     0 <= pos[1] < width and 
-                    heightmap[pos[0]][pos[1]] == 0)  # Adjust this threshold as needed
+                    heightmap[pos[0]][pos[1]] == 0)
 
         def get_neighbors(pos):
+            # get valid neighbors including diagonals
             neighbors = []
             for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)]:
                 new_pos = (pos[0] + dx, pos[1] + dy)
@@ -316,14 +322,14 @@ class RobotDogNode:
                     neighbors.append(new_pos)
             return neighbors
 
-        queue = deque([ds_start])
-        visited = set([ds_start])
-        came_from = {ds_start: None}
+        queue = deque([start])
+        visited = set([start])
+        came_from = {start: None}
 
-        while queue:
+        while queue: # Main BFS Loop
             current = queue.popleft()
             
-            if current == ds_goal:
+            if current == goal:
                 break
 
             for next_pos in get_neighbors(current):
@@ -333,21 +339,19 @@ class RobotDogNode:
                     came_from[next_pos] = current
 
         # Reconstruct path
-        if ds_goal not in came_from:
+        if goal not in came_from:
             print("No path found")
             return []
 
         path = []
-        current = ds_goal
-        while current != ds_start:
+        current = goal
+        while current != start:
             path.append(current)
             current = came_from[current]
-        path.append(ds_start)
+        path.append(start)
         path.reverse()
 
-        # Upsample the path back to original resolution
-        upsampled_path = [(p[0], p[1]) for p in path]
-        return upsampled_path
+        return path
 
     def dilate_obstacles(self, heightmap, radius):
         # Create a circular kernel
@@ -504,7 +508,6 @@ def handle_plan_path(data):
     global robot_dog_node
     start = tuple(data['start'])
     end = tuple(data['end'])
-    # heightmap = np.array(robot_dog_node.test_heightmap)  # Use the test heightmap for now
     heightmap = robot_dog_node.rotated_heightmap[::-1, :]
     path = robot_dog_node.calculate_path(start, end, heightmap)
     print(start, end, path)
