@@ -129,7 +129,7 @@ class RobotDogNode:
 
             # Threshold by obstacle height
             obstacle_threshold = 0.25
-            self.rotated_heightmap[self.rotated_heightmap > 1.0] = 0
+            # self.rotated_heightmap[self.rotated_heightmap > 10.0] = 0
             self.rotated_heightmap = self.rotated_heightmap > obstacle_threshold
 
             # Dilate
@@ -436,7 +436,6 @@ class RobotDogNode:
             speed = 0.3
             duration = np.linalg.norm(velocity) / speed
             velocity = velocity / duration
-            print(target, self.current_position[:2], velocity, duration)
 
             t_start = time.time()
             
@@ -510,7 +509,6 @@ def handle_plan_path(data):
     end = tuple(data['end'])
     heightmap = robot_dog_node.rotated_heightmap[::-1, :]
     path = robot_dog_node.calculate_path(start, end, heightmap)
-    print(start, end, path)
     socketio.emit('path_result', json.dumps(path))
     
 @socketio.on('execute_path')

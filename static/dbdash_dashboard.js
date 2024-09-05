@@ -61,7 +61,14 @@ function initMap() {
             if (endMarker) {
                 map.removeLayer(endMarker);
             }
-            endMarker = L.marker([y, x], {icon: L.divIcon({className: 'end-marker', html: 'E'})}).addTo(map);
+            endMarker = L.marker([y, x], {
+                icon: L.divIcon({
+                    className: 'end-marker',
+                    html: '<div style="font-weight: bold; color: black; background-color: grey; border: 2px solid black; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; border-radius: 4px;">E</div>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                })
+            }).addTo(map);
             statusIndicator.textContent = "End point selected. Planning path...";
             logMessage(`End point set at (${y}, ${x}). Planning path...`);
 
@@ -160,7 +167,12 @@ socket.on('heightmap_update', function(data) {
         const [robotX, robotY] = robotPosition;
         if (!robotMarker) {
             robotMarker = L.marker([robotY, robotX], {
-                icon: L.divIcon({className: 'robot-marker', html: 'R'})
+                icon: L.divIcon({
+                    className: 'robot-marker',
+                    html: '<div style="font-weight: bold; color: black; background-color: grey; border: 2px solid black; width: 20px; height: 20px; display: flex; justify-content: center; align-items: center; border-radius: 4px;">R</div>',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                })
             }).addTo(map);
         } else {
             robotMarker.setLatLng([robotY, robotX]);
