@@ -128,12 +128,12 @@ class RobotDogNode:
             self.rotated_heightmap = rotated_heightmap[::-1, :]
 
             # Threshold by obstacle height
-            obstacle_threshold = 0.25
+            obstacle_threshold = 0.20
             # self.rotated_heightmap[self.rotated_heightmap > 10.0] = 0
             self.rotated_heightmap = self.rotated_heightmap > obstacle_threshold
 
             # Dilate obstacles to leave a wide space between them and the robot
-            dilated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=8)
+            dilated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=6)
             self.rotated_heightmap = self.rotated_heightmap.astype(np.float)
             self.rotated_heightmap[np.logical_and(dilated_heightmap > 0, self.rotated_heightmap < 1)] = 0.3
 

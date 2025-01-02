@@ -7,9 +7,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='dbdash_dashboard.css') }}">
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='leaflet.js') }}"></script>
+    <script src="{{ url_for('static', filename='plotly-latest.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='socket.io.js') }}"></script>
 </head>
 <body>
     <header>
