@@ -134,7 +134,7 @@ class RobotDogNode:
 
             # Dilate obstacles to leave a wide space between them and the robot
             dilated_heightmap = self.dilate_obstacles(self.rotated_heightmap, radius=6)
-            self.rotated_heightmap = self.rotated_heightmap.astype(np.float)
+            self.rotated_heightmap = self.rotated_heightmap.astype(np.float64)
             self.rotated_heightmap[np.logical_and(dilated_heightmap > 0, self.rotated_heightmap < 1)] = 0.3
 
             # Add a colored dot for the robot (using a distinctive value, e.g., 2.0)
